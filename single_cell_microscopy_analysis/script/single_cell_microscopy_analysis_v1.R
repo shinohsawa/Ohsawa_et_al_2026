@@ -1,0 +1,352 @@
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(stringr)
+library(scales)
+library(writexl)
+library(readxl)
+
+# ====================================================================
+# 0. Setup and Paths
+# ====================================================================
+# IMPORTANT FOR REPRODUCIBILITY (Method 2 + Method 3):
+# Please set your working directory to the 'single_cell_microscopy_analysis' 
+# folder before running this script. If you are using an RStudio Project (.Rproj), 
+# opening the project file will automatically set the correct relative paths.
+setwd("/Volumes/Shin/paper_making/NLS-mCherry/github/Ohsawa_et_al_2026/single_cell_microscopy_analysis/") # Commented out for GitHub submission
+
+data_path   <- "./rawdata/"
+figure_path <- "./results/"
+
+M <- 5E-12    # grams, or 5 pg, as per BioNumbers
+mw_p <- 8.8e4 # Da, or g/mol (Molecular weight of 3xFP)
+
+# Function to calculate 3xFP particles per cell based on CBB fraction
+compute_copy_number <- function(f_p, mw_p, M) {
+  copy_number <- f_p * M * 6.02e23 / mw_p
+  return(copy_number)
+}
+
+# ====================================================================
+# 1. CBB Data & Biochemical Estimation (Universal Reference: NLS)
+# ====================================================================
+quant_induction <- read_xlsx(paste0(data_path, "250917_SO_qunatification_of_CBB.xlsx"))
+
+# Calculate average and SD for NLS only (used as the universal standard)
+quant_summary_NLS <- quant_induction %>%
+  filter(strain == "3xFP-NLS") %>%
+  summarise(mean_ratio = mean(ratio / 100),
+            sd_ratio = sd(ratio / 100))
+
+f_n_avg <- quant_summary_NLS$mean_ratio
+f_n_sd <- quant_summary_NLS$sd_ratio
+
+# Calculate average 3xFP molecule in 1 cell (NLS ground truth)
+n_n <- compute_copy_number(f_n_avg, mw_p, M) 
+save(n_n, file = paste0(figure_path, "n_n.RData"))
+n_n_plsSD <- compute_copy_number(f_n_avg + f_n_sd, mw_p, M) 
+n_n_minSD <- compute_copy_number(f_n_avg - f_n_sd, mw_p, M) 
+
+# ====================================================================
+# 2. Microscopy Data Loading & Processing
+# ====================================================================
+# Load cell volume data
+load_cell_data <- function(rep_num, path) {
+  read.csv(path) %>% 
+    select(Position_n, Cell_ID, cell_area_pxl, cell_area_um2, cell_vol_vox, cell_vol_fl,
+           SD_Cy3_mean_maxProj, SD_Cy3_autoBkgr_bkgrVal_mean_maxProj) %>% 
+    mutate(replicate = rep_num)
+}
+data_table_cells_r1 <- load_cell_data(1, paste0(data_path, "rep1_251015/AllPos_acdc_output_cell.csv"))
+data_table_cells_r2 <- load_cell_data(2, paste0(data_path, "rep2_251016/AllPos_acdc_output_cell.csv"))
+data_table_cells_r3 <- load_cell_data(3, paste0(data_path, "rep3_251017/AllPos_acdc_output_cell.csv"))
+
+# Load nuclear volume data
+load_nuc_data <- function(rep_num, path) {
+  read.csv(path) %>% 
+    select(Position_n, Cell_ID, nuc_area_um2 = cell_area_um2, nuc_vol_fl = cell_vol_fl, solidity) %>% 
+    mutate(replicate = rep_num)
+}
+data_table_nuclei_r1 <- load_nuc_data(1, paste0(data_path, "rep1_251015/AllPos_acdc_output_nuclear.csv"))
+data_table_nuclei_r2 <- load_nuc_data(2, paste0(data_path, "rep2_251016/AllPos_acdc_output_nuclear.csv"))
+data_table_nuclei_r3 <- load_nuc_data(3, paste0(data_path, "rep3_251017/AllPos_acdc_output_nuclear.csv"))
+
+# Position information
+pos_to_genotype_r1 <- read.csv(paste0(data_path, "rep1_251015/position_basename.csv")) %>% 
+  mutate(genotype = ifelse(grepl("_3537_", basename), "NLS", ifelse(grepl("_3548_", basename), "NES", NA)),
+         induced = ifelse(grepl("_EtOH_", basename), FALSE, ifelse(grepl("_EST_", basename), TRUE, NA)),
+         selected = TRUE)
+
+pos_to_genotype_r2 <- read.csv(paste0(data_path, "rep2_251016/position_basename.csv")) %>% 
+  mutate(genotype = ifelse(grepl("_3537_", basename), "NLS", ifelse(grepl("_3548_", basename), "NES", NA)),
+         induced = ifelse(grepl("_EtOH_", basename), FALSE, ifelse(grepl("_ED_", basename), TRUE, NA)),
+         selected = ifelse(grepl("_SC_", basename), FALSE, ifelse(grepl("_selection_", basename), TRUE, NA)))
+
+pos_to_genotype_r3 <- read.csv(paste0(data_path, "rep3_251017/position_basename.csv")) %>% 
+  mutate(genotype = ifelse(grepl("_3537_", basename), "NLS", ifelse(grepl("_3548_", basename), "NES", NA)),
+         induced = ifelse(grepl("_EtOH_", basename), FALSE, ifelse(grepl("_ED_", basename), TRUE, NA)),
+         selected = ifelse(grepl("_SC_", basename), FALSE, ifelse(grepl("_selection_", basename), TRUE, NA)))
+
+# Combine data and join position information
+combine_data <- function(cell_df, nuc_df, pos_df) {
+  cell_df %>% 
+    merge(nuc_df) %>% 
+    mutate(n_c_ratio = nuc_vol_fl / cell_vol_fl * 100,
+           fluor_int_avg = SD_Cy3_mean_maxProj - SD_Cy3_autoBkgr_bkgrVal_mean_maxProj) %>% 
+    filter(cell_vol_fl > 15 & n_c_ratio < 100) %>% 
+    left_join(pos_df, by = "Position_n")
+}
+
+combined_table <- rbind(
+  combine_data(data_table_cells_r1, data_table_nuclei_r1, pos_to_genotype_r1),
+  combine_data(data_table_cells_r2, data_table_nuclei_r2, pos_to_genotype_r2),
+  combine_data(data_table_cells_r3, data_table_nuclei_r3, pos_to_genotype_r3)
+)
+
+# Quality Control Plots
+combined_table %>% filter(selected) %>% 
+  ggplot(aes(x = n_c_ratio, color = as.factor(replicate), linetype = induced)) +
+  geom_density() + facet_grid(genotype~.) + theme_classic() + ggtitle("NC ratio distributions")
+
+combined_table %>% filter(selected) %>% 
+  ggplot(aes(x = log10(fluor_int_avg), color = as.factor(replicate), linetype = induced)) +
+  geom_density() + facet_grid(genotype~.) + theme_classic() + ggtitle("Avg. fluorescence intensity")
+
+# ====================================================================
+# 3. Universal Conversion Factor & Absolute Molecule Calculation
+# ====================================================================
+# Calculate volume-weighted 3xFP average intensity for induced NLS cells
+avg_intensity_NLS <- combined_table %>%
+  filter(induced == TRUE, genotype == "NLS", selected == TRUE) %>%
+  mutate(total_amount_FP = fluor_int_avg * cell_vol_fl) %>%
+  group_by(replicate) %>% 
+  reframe(tot_int = sum(total_amount_FP),
+          tot_vol = sum(cell_vol_fl)) %>%
+  mutate(int_avg = tot_int / tot_vol) %>%
+  summarise(int_avg = mean(int_avg)) %>% 
+  pull(int_avg)
+
+# Calculate universal conversion factor (Molecules per fluorescence unit)
+conversion_factor_universal <- n_n / avg_intensity_NLS 
+cat("Universal Conversion Factor:", conversion_factor_universal, "\n")
+
+combined_table_NES <- combined_table %>% 
+  filter(genotype == "NES", selected == TRUE) %>%
+  mutate(n_fp = fluor_int_avg * conversion_factor_universal)
+
+combined_table_NLS <- combined_table %>% 
+  filter(genotype == "NLS", selected == TRUE) %>%
+  mutate(n_fp = fluor_int_avg * conversion_factor_universal)
+
+combined_table <- combined_table %>% 
+  mutate(n_fp = fluor_int_avg * conversion_factor_universal)
+
+write_xlsx(combined_table, paste0(figure_path, "SourceData_SingleCell_Microscopy.xlsx"))
+
+n_summary <- combined_table %>% filter(selected == TRUE) %>% count(genotype, induced, name = "n_cells")
+print(n_summary)
+
+# ====================================================================
+# 4. Modeling: 3xFP-NLS System
+# ====================================================================
+# Baseline extraction
+NCratio_fromsinglecells_ui_NLS <- combined_table_NLS %>% filter(induced == FALSE) %>% 
+  summarise(mean_NCratio = mean(n_c_ratio / 100, na.rm = TRUE),
+            sd_ratio = sd(n_c_ratio / 100, na.rm = TRUE),
+            mean_num_fp = mean(n_fp, na.rm = TRUE),
+            sd_fp = sd(n_fp, na.rm = TRUE))
+
+uninduced_mean_fp_NLS <- NCratio_fromsinglecells_ui_NLS$mean_num_fp
+NCratio_mean_sc_3xFP_NLS_ui <- NCratio_fromsinglecells_ui_NLS$mean_NCratio
+
+# Vacuole data
+load(paste0(data_path, "summary_df_vac.rda"))
+
+r0_NLS <- NCratio_mean_sc_3xFP_NLS_ui                
+R_v2_NLS <- summary_df_vac %>% filter(strain == "NLS" & treatment == "EtOH") %>% pull(mean_ratio)
+R_v1_NLS <- summary_df_vac %>% filter(strain == "NLS" & treatment == "EST") %>% pull(mean_ratio)
+n_start_NLS <- uninduced_mean_fp_NLS               
+n_end_NLS <- n_n                
+
+# Optimization for N_t (NLS)
+loess_fit_NLS <- loess(n_c_ratio / 100 ~ n_fp, data = combined_table_NLS)
+eval_n_NLS <- seq(n_start_NLS, n_end_NLS, length.out = 100)
+loess_pred_NLS <- predict(loess_fit_NLS, newdata = data.frame(n_fp = eval_n_NLS))
+
+calc_rss_NLS <- function(test_Nt) {
+  temp_Rv1 <- R_v2_NLS + (R_v1_NLS - R_v2_NLS) * (eval_n_NLS - n_start_NLS) / (n_end_NLS - n_start_NLS)
+  model_pred <- ((eval_n_NLS - n_start_NLS) / test_Nt) * (1 - r0_NLS / (1 - R_v2_NLS)) * (1 - R_v1_NLS) + r0_NLS * (1 - temp_Rv1) / (1 - R_v2_NLS)
+  return(sum((loess_pred_NLS - model_pred)^2, na.rm = TRUE))
+}
+
+opt_result_NLS <- optimize(calc_rss_NLS, interval = c(1e6, 5e7))
+best_Nt_NLS <- opt_result_NLS$minimum
+cat("Best fitting N_t (NLS) is:", best_Nt_NLS / 1e6, "M\n")
+
+df5_NLS <- expand.grid(
+  R_v1 = R_v1_NLS, 
+  n_nls = seq(1e2, 5E7, by = 1E5),
+  N_t = best_Nt_NLS
+) %>%
+  mutate(
+    R_v1 = R_v2_NLS + (R_v1_NLS - R_v2_NLS) * (n_nls - n_start_NLS) / (n_end_NLS - n_start_NLS),
+    exp_obs_NC = ((n_nls - n_start_NLS) / N_t) * (1 - r0_NLS / (1 - R_v2_NLS)) * (1 - R_v1) + r0_NLS * (1 - R_v1) / (1 - R_v2_NLS)
+  )
+
+# Plot NLS Model
+ggplot() +
+  geom_point(data = combined_table_NLS, aes(x = n_fp, y = n_c_ratio / 100, fill = as.factor(induced)), 
+             size = 2, shape = 21, alpha = 0.2, stroke = 0) +
+  scale_fill_manual(values = c("gray", "#3853a3")) +
+  geom_line(data = df5_NLS, aes(x = n_nls, y = exp_obs_NC), size = 0.8, linetype = "dashed", color = "black") +  
+  geom_text(data = df5_NLS %>% filter(n_nls == max(n_nls)), 
+            aes(x = n_nls - 4e6, y = exp_obs_NC, label = paste0("Model with ", round(best_Nt_NLS/1e6, 1), "M")),
+            vjust = -0.8, hjust = 1, size = 4, color = "black") +
+  scale_x_log10() +
+  coord_cartesian(ylim = c(0, 0.4), xlim = c(1e3, 1e7)) +
+  labs(title = expression(
+    italic(r) == frac(italic(n), italic(N)[t]) * group("(", 1 - frac(italic(r)[0], 1 - italic(phi)[v*","*0]), ")") * (1 - italic(phi)[v*","*italic(i)])+ 
+      italic(r)[0] * frac(1 - italic(phi)[v*","*italic(i)], 1 - italic(phi)[v*","*0])
+  ), x = expression(italic(n) * ", number of 3xFP-NLS"), y = "N/C ratio") +
+  theme_classic()
+ggsave(paste0(figure_path, "3xFP_NLS_model_paper.pdf"), width = 7, height = 5)
+
+# ====================================================================
+# 5. Modeling: 3xFP-NES System
+# ====================================================================
+NCratio_fromsinglecells_ui_NES <- combined_table_NES %>% filter(induced == FALSE) %>% 
+  summarise(mean_NCratio = mean(n_c_ratio / 100, na.rm = TRUE),
+            mean_num_fp = mean(n_fp, na.rm = TRUE))
+
+uninduced_mean_fp_NES <- NCratio_fromsinglecells_ui_NES$mean_num_fp
+NCratio_mean_sc_3xFP_NES_ui <- NCratio_fromsinglecells_ui_NES$mean_NCratio
+
+r0_NES <- NCratio_mean_sc_3xFP_NES_ui                
+R_v2_NES <- summary_df_vac %>% filter(strain == "NES" & treatment == "EtOH") %>% pull(mean_ratio)
+R_v1_NES <- summary_df_vac %>% filter(strain == "NES" & treatment == "EST") %>% pull(mean_ratio)
+n_start_NES <- uninduced_mean_fp_NES               
+n_end_NES <- combined_table_NES %>% filter(induced == TRUE) %>% pull(n_fp) %>% mean(na.rm = TRUE)
+
+# Optimization for N_t (NES)
+loess_fit_NES <- loess(n_c_ratio / 100 ~ n_fp, data = combined_table_NES)
+eval_n_NES <- seq(n_start_NES, n_end_NES, length.out = 100)
+loess_pred_NES <- predict(loess_fit_NES, newdata = data.frame(n_fp = eval_n_NES))
+
+calc_rss_NES <- function(test_Nt) {
+  temp_Rv1 <- R_v2_NES + (R_v1_NES - R_v2_NES) * (eval_n_NES - n_start_NES) / (n_end_NES - n_start_NES)
+  model_pred <- (1 - (eval_n_NES - n_start_NES) / test_Nt) * (1 - temp_Rv1) * (r0_NES / (1 - R_v2_NES))
+  return(sum((loess_pred_NES - model_pred)^2, na.rm = TRUE))
+}
+
+opt_result_NES <- optimize(calc_rss_NES, interval = c(1e6, 5e7))
+best_Nt_from_NES <- opt_result_NES$minimum
+cat("Best fitting N_t (NES) is:", best_Nt_from_NES / 1e6, "M\n")
+
+df5_cyt <- expand.grid(
+  R_v1 = R_v1_NES, 
+  n_cyt = seq(1e2, 5E6, by = 1E5),
+  N_t = best_Nt_from_NES
+) %>%
+  mutate(
+    R_v1 = R_v2_NES + (R_v1_NES - R_v2_NES) * (n_cyt - n_start_NES) / (n_end_NES - n_start_NES),
+    exp_obs_NC = (1 - (n_cyt - n_start_NES) / N_t) * (1 - R_v1) * (r0_NES / (1 - R_v2_NES))
+  )
+
+# Plot NES Model
+ggplot() +
+  geom_point(data = combined_table_NES, aes(x = n_fp, y = n_c_ratio / 100, fill = as.factor(induced)), 
+             size = 2, alpha = 0.2, shape = 21, stroke = 0) +
+  scale_fill_manual(values = c("gray", "orange")) + 
+  geom_line(data = df5_cyt, aes(x = n_cyt, y = exp_obs_NC), size = 0.8, linetype = "dashed", color = "black") +  
+  scale_x_log10() +
+  coord_cartesian(xlim = c(1e3, 1e7)) +
+  labs(title = expression(
+    italic(r) == group("(", 1 - frac(italic(n), italic(N)[t]), ")") * italic(r)[0]* frac(1 - italic(phi)[v*","*italic(i)], 1 - italic(phi)[v*","*0])
+  ), x = "n, number of 3xFP-NES", y = "N/C ratio") +
+  theme_classic()
+ggsave(paste0(figure_path, "3xFP_NES_model_for_paper.pdf"), width = 7, height = 5)
+
+
+# ====================================================================
+# 6. Nt calculation from each induced cell
+# ====================================================================
+combined_table_NLS <- combined_table_NLS %>% 
+  mutate(expected_Nt = n_fp * (1 - (r0_NLS / (1 - R_v2_NLS))) * (1 - R_v1_NLS) / ((n_c_ratio / 100) - (r0_NLS * (1 - R_v1_NLS)) / (1 - R_v2_NLS)),
+         system = "NLS")
+
+combined_table_NES <- combined_table_NES %>% 
+  mutate(expected_Nt = n_fp / (1 - ((n_c_ratio / 100) / r0_NES) * ((1 - R_v2_NES) / (1 - R_v1_NES))),
+         system = "NES")
+
+combined_table_NLS_and_NES <- rbind(combined_table_NLS, combined_table_NES) 
+
+combined_table_NLS_and_NES_induced <- combined_table_NLS_and_NES %>%
+  filter(induced == "TRUE") %>%
+  mutate(system = factor(system, levels = c("NLS", "NES")))
+
+ggplot(data = combined_table_NLS_and_NES_induced, aes(x = system, y = expected_Nt, fill = system)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "gray") +
+  scale_fill_manual(values = c("#3853a3", "orange")) +
+  scale_y_log10() +
+  theme_classic() 
+ggsave(paste0(figure_path, "Expected_Nt_paper.pdf"), width = 4, height = 4)
+
+# calculation of mean and median of expected Nt
+summary_expected_Nt <- combined_table_NLS_and_NES_induced %>%
+  group_by(system) %>%
+  summarise(
+    mean_expected_Nt = mean(expected_Nt, na.rm = TRUE),
+    median_expected_Nt = median(expected_Nt, na.rm = TRUE),
+    n_cells = n()
+  )
+
+print(summary_expected_Nt)
+
+
+# ====================================================================
+# 7. Nuclear Envelope Tension Calculation (NLS System)
+# ====================================================================
+kT <- 4.11e-21     # Boltzmann constant * T (Joules)
+N_t_tension <- best_Nt_from_NES  # Use NES-derived N_t as the true capacity baseline
+save(best_Nt_from_NES, file = paste0(figure_path, "best_Nt_from_NES.RData"))
+
+combined_table_NLS <- combined_table_NLS %>%
+  mutate(
+    Vn_m3 = nuc_vol_fl * 1e-18,
+    Rn1_obs = nuc_vol_fl / cell_vol_fl,
+    sigma_val_N_m = (kT / (2 * (Vn_m3^(2/3)))) * ((3 / (4 * pi))^(1/3)) * ((n_fp * (1 - r0_NLS) - N_t_tension * (Rn1_obs - r0_NLS)) / (1 - Rn1_obs)),
+    sigma_mN_m = sigma_val_N_m * 1000
+  )
+
+# Scatter plot of Membrane Tension
+ggplot(combined_table_NLS, aes(x = n_fp, y = sigma_mN_m, fill = induced)) +
+  geom_point(size = 2, shape = 21, alpha = 0.2, stroke = 0) +
+  scale_fill_manual(values = c("gray", "#3853a3")) +
+  scale_x_log10() +    
+  coord_cartesian(ylim = c(0, 2), xlim = c(1e3, 1e7)) +
+  theme_classic() +
+  labs(x = "n, number of 3xFP-NLS", 
+       y = "Calculated nuclear membrane tension (mN/m)") 
+ggsave(paste0(figure_path, "3xFP_NLS_membrane_tension_scatter_plot_for_paper.pdf"), width = 6, height = 4)
+
+# Boxplot of Membrane Tension
+ggplot(combined_table_NLS, aes(x = induced, y = sigma_mN_m, fill = induced)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "gray") +
+  scale_fill_manual(values = c("gray", "#3853a3")) +
+  coord_cartesian(ylim = c(0, 2)) +
+  theme_classic() +
+  labs(title = expression(
+    sigma == frac(italic(n) * (1 - italic(r)[0]) - italic(N)[t] * (italic(r)[italic(i)] - italic(r)[0]), 1 - italic(r)[italic(i)]) %*% frac(italic(k)[B] * italic(T), 2 * italic(V)[nuc]^"2/3") %*% group("(", frac(3, 4 * pi), ")")^"1/3"
+  ),
+  y = "Calculated nuclear membrane tension (mN/m)") +
+  theme(plot.title = element_text(size = 10))
+ggsave(paste0(figure_path, "3xFP_NLS_membrane_tension_box_plot_for_paper.pdf"), width = 3.5, height = 4.5)
+
+# Summary Stats
+summary_stats <- combined_table_NLS %>%
+  group_by(induced) %>%
+  summarise(mean_val = mean(sigma_mN_m, na.rm = TRUE),
+            median_val = median(sigma_mN_m, na.rm = TRUE),
+            n = n())
+print(summary_stats)

@@ -1,0 +1,15 @@
+"","Status","cdc28_13_37_2h_rep1_Aligned.sortedByCoord.out.bam","cdc28_13_37_2h_rep2_Aligned.sortedByCoord.out.bam","cdc28_13_37_2h_rep3_Aligned.sortedByCoord.out.bam","cdc28_13_37_8h_rep1_Aligned.sortedByCoord.out.bam","cdc28_13_37_8h_rep2_Aligned.sortedByCoord.out.bam","cdc28_13_37_8h_rep3_Aligned.sortedByCoord.out.bam","WT_37_2h_rep1_Aligned.sortedByCoord.out.bam","WT_37_2h_rep2_Aligned.sortedByCoord.out.bam","WT_37_2h_rep3_Aligned.sortedByCoord.out.bam","WT_37_8h_rep1_Aligned.sortedByCoord.out.bam","WT_37_8h_rep2_Aligned.sortedByCoord.out.bam","WT_37_8h_rep3_Aligned.sortedByCoord.out.bam"
+"1","Assigned",11183093,10928389,11624422,11799689,8709033,9428976,10196350,12144410,9623784,10230602,12657139,11761784
+"2","Unassigned_Unmapped",0,0,0,0,0,0,0,0,0,0,0,0
+"3","Unassigned_Read_Type",0,0,0,0,0,0,0,0,0,0,0,0
+"4","Unassigned_Singleton",0,0,0,0,0,0,0,0,0,0,0,0
+"5","Unassigned_MappingQuality",0,0,0,0,0,0,0,0,0,0,0,0
+"6","Unassigned_Chimera",0,0,0,0,0,0,0,0,0,0,0,0
+"7","Unassigned_FragmentLength",0,0,0,0,0,0,0,0,0,0,0,0
+"8","Unassigned_Duplicate",0,0,0,0,0,0,0,0,0,0,0,0
+"9","Unassigned_MultiMapping",0,0,0,0,0,0,0,0,0,0,0,0
+"10","Unassigned_Secondary",0,0,0,0,0,0,0,0,0,0,0,0
+"11","Unassigned_NonSplit",0,0,0,0,0,0,0,0,0,0,0,0
+"12","Unassigned_NoFeatures",374548,364955,385075,391716,295709,316380,343882,407412,326586,340464,428179,388042
+"13","Unassigned_Overlapping_Length",0,0,0,0,0,0,0,0,0,0,0,0
+"14","Unassigned_Ambiguity",0,0,0,0,0,0,0,0,0,0,0,0

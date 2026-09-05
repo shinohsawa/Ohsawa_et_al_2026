@@ -1,0 +1,9 @@
+Run,SampleName,LibraryName,AssayType
+SRX34431568,Human RPE1 Day2 rep1,day2_r1,RNA-Seq
+SRX34431596,Human RPE1 Day2 rep2,day2_r2,RNA-Seq
+SRX34431597,Human RPE1 Day2 rep3,day2_r3,RNA-Seq
+SRX34431598,Human RPE1 Day2 rep4,day2_r4,RNA-Seq
+SRX34431599,Human RPE1 Day7 rep1,day7_r1,RNA-Seq
+SRX34431600,Human RPE1 Day7 rep2,day7_r2,RNA-Seq
+SRX34431601,Human RPE1 Day7 rep3,day7_r3,RNA-Seq
+SRX34431602,Human RPE1 Day7 rep4,day7_r4,RNA-Seq

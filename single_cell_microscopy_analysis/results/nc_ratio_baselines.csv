@@ -1,0 +1,5 @@
+"variable","value","description"
+"NCratio_mean_sc_3xFP_NLS",0.174744866285608,"Mean N/C ratio of single cells in the induced 3xFP-NLS system (experimental final point)"
+"NCratio_mean_sc_3xFP_NES",0.026852779536146,"Mean N/C ratio of single cells in the induced 3xFP-NES system (experimental final point)"
+"NCratio_mean_sc_3xFP_NLS_ui",0.0594018650601075,"Mean N/C ratio of single cells in the uninduced 3xFP-NLS system (baseline r0_NLS)"
+"NCratio_mean_sc_3xFP_NES_ui",0.0486731629724453,"Mean N/C ratio of single cells in the uninduced 3xFP-NES system (baseline r0_NES)"

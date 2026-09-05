@@ -1,0 +1,4 @@
+mScarlet
+mCherry1
+mCherry2
+SV40_NLS
